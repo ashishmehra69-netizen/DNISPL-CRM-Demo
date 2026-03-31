@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "simple_crm_backend.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "simple_crm_backend.py"
+      "dest": "api/index.py"
     }
   ]
 }
