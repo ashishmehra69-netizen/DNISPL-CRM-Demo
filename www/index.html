@@ -2176,6 +2176,21 @@ function openAddModal() {
  <div class="modal-content">
  <h2>${account ? 'Edit' : 'Add'} Account</h2>
  <div style="margin:8px 0 16px 0; padding:10px 12px; border-radius:8px; background:rgba(255,255,255,0.18); font-size:0.9em;">📅 Created: ${fmtDateTime(account?.createdDate || new Date().toISOString())} | 🕒 Updated: ${fmtDateTime(account?.modifiedDate || new Date().toISOString())}</div>
+ <label style="display:block;margin:8px 0 4px;font-size:0.9em;font-weight:600">Geofence — Latitude</label>
+ <input class="input" type="number" step="0.0000001" name="geo_lat" 
+        placeholder="e.g. 28.6139" value="${account?.geo_lat || ''}">
+ 
+ <label style="display:block;margin:8px 0 4px;font-size:0.9em;font-weight:600">Geofence — Longitude</label>
+ <input class="input" type="number" step="0.0000001" name="geo_lng" 
+        placeholder="e.g. 77.2090" value="${account?.geo_lng || ''}">
+ 
+ <label style="display:block;margin:8px 0 4px;font-size:0.9em;font-weight:600">Geofence Radius (meters)</label>
+ <input class="input" type="number" name="geo_radius_meters" 
+        placeholder="150" value="${account?.geo_radius_meters || 150}">
+ 
+ <button type="button" class="btn" onclick="useMyLocation('geo_lat','geo_lng')">
+   📍 Use My Current Location
+ </button>
  <form onsubmit="saveAccount(event, ${account ? `'${account.id}'` : 'null'})">
  <input class="input" required name="name" placeholder="Account Name *" value="${account?.name || ''}">
  <input class="input" required name="industry" placeholder="Industry *" value="${account?.industry || ''}">
@@ -2312,7 +2327,71 @@ function openActivityModal(activity = null) {
  `;
  document.getElementById('modal').classList.add('show');
 }
+function useMyLocation(latField, lngField) {
+    if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
+    navigator.geolocation.getCurrentPosition(pos => {
+        document.querySelector(`[name="${latField}"]`).value = pos.coords.latitude.toFixed(7);
+        document.querySelector(`[name="${lngField}"]`).value = pos.coords.longitude.toFixed(7);
+    }, err => alert('Could not get location: ' + err.message));
+}
 
+// Background geo tracker — starts after login
+let _geoWatcher = null;
+let _activeVisit = null; // { visitId, accountId }
+
+function startGeoTracking() {
+    if (!navigator.geolocation || !currentUser) return;
+    _geoWatcher = navigator.geolocation.watchPosition(async pos => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        try {
+            const resp = await fetch(`${CRM_API_BASE}/api/geo/ping`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_email: currentUser, lat, lng, accuracy })
+            });
+            const data = await resp.json();
+            const inside = data.inside_geofences || [];
+
+            // Auto check-in if entered a geofence
+            if (inside.length && !_activeVisit) {
+                const account = inside[0];
+                const cin = await fetch(`${CRM_API_BASE}/api/geo/checkin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_email: currentUser,
+                        account_id: account.account_id,
+                        lat, lng, trigger_type: 'geofence'
+                    })
+                });
+                const cinData = await cin.json();
+                _activeVisit = { visitId: cinData.visit_id, accountId: account.account_id };
+                document.getElementById('status').textContent =
+                    `📍 Checked in: ${account.account_name}`;
+            }
+
+            // Auto check-out if left all geofences
+            if (!inside.length && _activeVisit) {
+                await fetch(`${CRM_API_BASE}/api/geo/checkout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_email: currentUser,
+                        visit_id: _activeVisit.visitId,
+                        account_id: _activeVisit.accountId
+                    })
+                });
+                document.getElementById('status').textContent = '✅ Checked out — visit auto-logged';
+                _activeVisit = null;
+            }
+        } catch(e) { /* offline — will retry next ping */ }
+    }, null, { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 });
+}
+
+function stopGeoTracking() {
+    if (_geoWatcher) navigator.geolocation.clearWatch(_geoWatcher);
+    _geoWatcher = null;
+}
 async function saveActivity(e, id) {
  e.preventDefault();
  const formData = Object.fromEntries(new FormData(e.target));
@@ -2538,6 +2617,9 @@ async function saveLead(e, id) {
 }
 
 async function saveAccount(e, id) {
+geo_lat: parseFloat(data.geo_lat) || null,
+geo_lng: parseFloat(data.geo_lng) || null,
+geo_radius_meters: parseInt(data.geo_radius_meters) || 150,
  e.preventDefault();
  const data = Object.fromEntries(new FormData(e.target));
 
