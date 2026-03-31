@@ -538,6 +538,7 @@ async function restoreSessionIfAny() {
  isSupervisor = ['ashish.mehra@dnispl.com', 'a.gupta@dnispl.com', 'rakesh.uniyal@dnispl.com'].includes(savedUser) || localStorage.getItem('crmIsSupervisor') === '1';
  managerFilter = '';
  applyLoggedInUi();
+ startGeoTracking();
  const statusEl = document.getElementById('status');
  if (statusEl) statusEl.textContent = 'Restoring session and loading data...';
  try {
@@ -1197,7 +1198,8 @@ async function login() {
  managerFilter = '';
  
  applyLoggedInUi();
- persistSession();
+  persistSession();
+  startGeoTracking();
 
  const statusEl = document.getElementById('status');
  if (statusEl) statusEl.textContent = 'Loading accounts and activities...';
@@ -1217,6 +1219,7 @@ async function login() {
  }
 
  function logout() {
+ stopGeoTracking();
  currentUser = '';
  isSupervisor = false;
  managerFilter = '';
@@ -2619,9 +2622,6 @@ async function saveLead(e, id) {
 }
 
 async function saveAccount(e, id) {
-geo_lat: parseFloat(data.geo_lat) || null,
-geo_lng: parseFloat(data.geo_lng) || null,
-geo_radius_meters: parseInt(data.geo_radius_meters) || 150,
  e.preventDefault();
  const data = Object.fromEntries(new FormData(e.target));
 
@@ -2647,6 +2647,9 @@ geo_radius_meters: parseInt(data.geo_radius_meters) || 150,
   annual_spend: data.annualSpend || '',
   mode: data.mode || '',
   suspect_score: suspectScore,
+  geo_lat: parseFloat(data.geo_lat) || null,
+  geo_lng: parseFloat(data.geo_lng) || null,
+  geo_radius_meters: parseInt(data.geo_radius_meters) || 150,
   ...suspectAnswers,
  };
 
