@@ -1,14 +1,13 @@
 {
   "appId": "com.dnispl.crm",
-  "appName": "Sales CRM",
+  "appName": "DNISPL CRM",
   "webDir": "www",
   "server": {
-    "androidScheme": "https",
-    "cleartext": true
+    "androidScheme": "https"
   },
   "plugins": {
     "Geolocation": {
-      "permissions": ["location", "coarseLocation"]
+      "permissions": ["location"]
     }
   }
 }
