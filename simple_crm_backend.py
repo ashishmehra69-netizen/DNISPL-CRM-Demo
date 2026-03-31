@@ -137,6 +137,9 @@ def init_db() -> None:
             cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS suspect_q9 TEXT;")
             cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS suspect_q10 TEXT;")
             cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS suspect_score INTEGER DEFAULT 0;")
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_lat NUMERIC(10,7);")
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_lng NUMERIC(10,7);")
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_radius_meters INTEGER DEFAULT 150;")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS activities (
@@ -337,7 +340,36 @@ def init_db() -> None:
                 );
                 """
             )
-        conn.commit()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS location_pings (
+                    id SERIAL PRIMARY KEY,
+                    user_email TEXT NOT NULL,
+                    lat NUMERIC(10,7),
+                    lng NUMERIC(10,7),
+                    accuracy_meters NUMERIC,
+                    battery_level NUMERIC,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS account_visits (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    user_email TEXT NOT NULL,
+                    checked_in_at TIMESTAMPTZ DEFAULT now(),
+                    checked_out_at TIMESTAMPTZ,
+                    duration_minutes NUMERIC,
+                    lat NUMERIC(10,7),
+                    lng NUMERIC(10,7),
+                    trigger_type TEXT DEFAULT 'manual',
+                    notes TEXT DEFAULT ''
+                );
+                """
+            )
+        conn.commit()   
     finally:
         conn.close()
 
@@ -568,6 +600,9 @@ def upsert_account(data: dict, manager_id: int) -> str:
     company_size = (data.get("company_size") or data.get("companySize") or "").strip()
     annual_spend = (data.get("annual_spend") or data.get("annualSpend") or "").strip()
     mode = (data.get("mode") or "").strip()
+    geo_lat = data.get("geo_lat") or None
+    geo_lng = data.get("geo_lng") or None
+    geo_radius_meters = int(data.get("geo_radius_meters") or 150)
     suspect_answers = {
         f"suspect_q{i}": (data.get(f"suspect_q{i}") or "").strip()
         for i in range(1, 11)
@@ -596,6 +631,9 @@ def upsert_account(data: dict, manager_id: int) -> str:
                         company_size=%s,
                         annual_spend=%s,
                         mode=%s,
+                        geo_lat=%s,
+                        geo_lng=%s,
+                        geo_radius_meters=%s,
                         suspect_q1=%s,
                         suspect_q2=%s,
                         suspect_q3=%s,
@@ -618,6 +656,9 @@ def upsert_account(data: dict, manager_id: int) -> str:
                         company_size,
                         annual_spend,
                         mode,
+                        geo_lat,
+                        geo_lng,
+                        geo_radius_meters,
                         suspect_answers["suspect_q1"],
                         suspect_answers["suspect_q2"],
                         suspect_answers["suspect_q3"],
@@ -639,12 +680,14 @@ def upsert_account(data: dict, manager_id: int) -> str:
                 """
                 INSERT INTO accounts (
                     account_name, account_manager_id, industry, tier, location, company_size, annual_spend, mode,
+                    geo_lat, geo_lng, geo_radius_meters,
                     suspect_q1, suspect_q2, suspect_q3, suspect_q4, suspect_q5,
                     suspect_q6, suspect_q7, suspect_q8, suspect_q9, suspect_q10, suspect_score,
                     created_at, updated_at
                 )
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     now(), now()
@@ -659,6 +702,9 @@ def upsert_account(data: dict, manager_id: int) -> str:
                     company_size,
                     annual_spend,
                     mode,
+                    geo_lat,
+                    geo_lng,
+                    geo_radius_meters,
                     suspect_answers["suspect_q1"],
                     suspect_answers["suspect_q2"],
                     suspect_answers["suspect_q3"],
