@@ -1768,7 +1768,149 @@ def upsert_aop_actual():
         return jsonify({"status": status, "account_id": account_id, "month": month})
     finally:
         conn.close()
+    # POST /api/geo/ping — device sends location every 60s
+@app.route("/api/geo/ping", methods=["POST"])
+def geo_ping():
+    data = request.get_json(silent=True) or {}
+    user_email = (data.get("user_email") or "").strip().lower()
+    lat = data.get("lat")
+    lng = data.get("lng")
+    if not user_email or lat is None or lng is None:
+        return jsonify({"error": "user_email, lat, lng required"}), 400
 
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "INSERT INTO location_pings (user_email, lat, lng, accuracy_meters, battery_level) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (user_email, lat, lng,
+                 data.get("accuracy"), data.get("battery"))
+            )
+            # Check if inside any account geofence
+            cur.execute("""
+                SELECT id, account_name, geo_lat, geo_lng, geo_radius_meters
+                FROM accounts
+                WHERE geo_lat IS NOT NULL AND geo_lng IS NOT NULL
+                AND (
+                    6371000 * acos(
+                        cos(radians(%s)) * cos(radians(geo_lat)) *
+                        cos(radians(geo_lng) - radians(%s)) +
+                        sin(radians(%s)) * sin(radians(geo_lat))
+                    )
+                ) <= COALESCE(geo_radius_meters, 150)
+            """, (lat, lng, lat))
+            nearby = cur.fetchall()
+        conn.commit()
+        return jsonify({"status": "ok", "inside_geofences": [
+            {"account_id": str(r["id"]), "account_name": r["account_name"]}
+            for r in nearby
+        ]})
+    finally:
+        conn.close()
+
+# POST /api/geo/checkin — manual or geofence-triggered
+@app.route("/api/geo/checkin", methods=["POST"])
+def geo_checkin():
+    data = request.get_json(silent=True) or {}
+    user_email = (data.get("user_email") or "").strip().lower()
+    account_id = (data.get("account_id") or "").strip()
+    if not user_email or not account_id:
+        return jsonify({"error": "user_email and account_id required"}), 400
+
+    visit_id = f"visit_{int(datetime.utcnow().timestamp() * 1000)}"
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Close any open visit for this user+account
+            cur.execute("""
+                UPDATE account_visits
+                SET checked_out_at = now(),
+                    duration_minutes = EXTRACT(EPOCH FROM (now() - checked_in_at))/60
+                WHERE user_email=%s AND account_id=%s AND checked_out_at IS NULL
+            """, (user_email, account_id))
+
+            cur.execute("""
+                INSERT INTO account_visits
+                (id, account_id, user_email, checked_in_at, lat, lng, trigger_type)
+                VALUES (%s, %s, %s, now(), %s, %s, %s)
+            """, (visit_id, account_id, user_email,
+                  data.get("lat"), data.get("lng"),
+                  data.get("trigger_type", "manual")))
+        conn.commit()
+        return jsonify({"status": "checked_in", "visit_id": visit_id})
+    finally:
+        conn.close()
+
+# POST /api/geo/checkout
+@app.route("/api/geo/checkout", methods=["POST"])
+def geo_checkout():
+    data = request.get_json(silent=True) or {}
+    user_email = (data.get("user_email") or "").strip().lower()
+    account_id = (data.get("account_id") or "").strip()
+    visit_id   = (data.get("visit_id")   or "").strip()
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if visit_id:
+                cur.execute("""
+                    UPDATE account_visits
+                    SET checked_out_at=now(),
+                        duration_minutes=EXTRACT(EPOCH FROM (now()-checked_in_at))/60
+                    WHERE id=%s RETURNING duration_minutes
+                """, (visit_id,))
+            else:
+                cur.execute("""
+                    UPDATE account_visits
+                    SET checked_out_at=now(),
+                        duration_minutes=EXTRACT(EPOCH FROM (now()-checked_in_at))/60
+                    WHERE user_email=%s AND account_id=%s AND checked_out_at IS NULL
+                    RETURNING duration_minutes
+                """, (user_email, account_id))
+            row = cur.fetchone()
+            duration = int(row["duration_minutes"]) if row else 0
+
+            # Auto-log as activity if visit > 5 min
+            if duration >= 5 and account_id:
+                act_id = f"act_{int(datetime.utcnow().timestamp()*1000)}"
+                cur.execute("""
+                    INSERT INTO activities
+                    (id, type, subject, notes, date, owner, account_id, account_name)
+                    SELECT %s, 'Meeting', 'Field visit — auto logged',
+                           %s, now(), %s, a.id::text, a.account_name
+                    FROM accounts a WHERE a.id::text=%s
+                """, (act_id,
+                      f"Geo-tagged visit: {duration} minutes on-site",
+                      user_email, account_id))
+        conn.commit()
+        return jsonify({"status": "checked_out", "duration_minutes": duration})
+    finally:
+        conn.close()
+
+# GET /api/geo/visits — for manager dashboard
+@app.route("/api/geo/visits", methods=["GET"])
+def list_visits():
+    viewer_email = (request.args.get("viewer_email") or "").strip().lower()
+    viewer_role  = (request.args.get("viewer_role")  or "account_manager").strip().lower()
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if _is_supervisor(viewer_role):
+                cur.execute("""
+                    SELECT v.*, a.account_name FROM account_visits v
+                    LEFT JOIN accounts a ON a.id::text = v.account_id
+                    ORDER BY v.checked_in_at DESC LIMIT 500
+                """)
+            else:
+                cur.execute("""
+                    SELECT v.*, a.account_name FROM account_visits v
+                    LEFT JOIN accounts a ON a.id::text = v.account_id
+                    WHERE v.user_email=%s
+                    ORDER BY v.checked_in_at DESC LIMIT 200
+                """, (viewer_email,))
+            return jsonify([dict(r) for r in cur.fetchall()])
+    finally:
+        conn.close()
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", "8001"))
