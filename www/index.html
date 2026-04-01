@@ -1239,9 +1239,9 @@ async function loadData() {
  if (savedData) {
  state.data = JSON.parse(savedData);
  } else {
- state.data = { leads: [], accounts: [], contacts: [], opportunities: [], activities: [] };
+ state.data = { leads: [], accounts: [], contacts: [], opportunities: [], activities: [], purchase_orders: [] };
  }
-
+ loadPurchaseOrders();
  const [accountsResult, activitiesResult, leadsResult, contactsResult, oppsResult] = await Promise.allSettled([
   withTimeout(fetchAccountsFromApi(), 7000, 'accounts'),
   withTimeout(fetchActivitiesFromApi(), 7000, 'activities'),
@@ -1358,14 +1358,15 @@ function seedAccountsFromMap() {
  setTimeout(() => loadAopData().then(() => render()), 500);
   
 function calculateWinProb(opp) {
- // Base probability from stage
+ if (opp.stage === 'Closed Won') return 100;
+ if (opp.stage === 'Closed Lost') return 0;
  const stageProb = {
  'Discovery': 25,
  'Proposal': 60,
  'Negotiation': 85,
- 'Closed Won': 100,
- 'Closed Lost': 0
  };
+ 
+ let base = stageProb[opp.stage] || 25;
  
  let base = stageProb[opp.stage] || 25;
  
@@ -1515,7 +1516,7 @@ function getFilteredData() {
  const tabs = isSupervisor
  ? ['leads', 'accounts', 'contacts', 'opportunities', 'workflow', 'activities', 'purchase', 'aop', 'dashboard']
  : (role === 'sales'
- ? ['leads', 'accounts', 'contacts', 'opportunities', 'workflow', 'activities', 'purchase']
+ ? ['leads', 'accounts', 'contacts', 'opportunities', 'workflow', 'activities', 'purchase', 'aop']
  : ['opportunities', 'workflow', 'activities']);
  if (!tabs.includes(state.activeTab)) state.activeTab = tabs[0];
  document.getElementById('tabs').innerHTML = tabs.map(t => 
@@ -1657,8 +1658,8 @@ ${filtered.accounts.map(a => `
  <div style="margin-top:10px">
  <span class="tag">Tier ${a.tier}</span>
  <span class="tag">${a.location}</span>
- <span class="tag" style="background:#4ade80; color:white">Suspect Score: ${getAccountSuspectScore(a)}/10</span>
- <span class="tag" style="background:#22c55e; color:white">Questionnaire: ${getAccountQuestionnaireCompletion(a)}%</span>
+ <span class="tag" style="background:${getAccountSuspectScore(a) >= 10 ? '#4ade80' : '#ef4444'}; color:white">Suspect Score: ${getAccountSuspectScore(a)}/10</span>
+ <span class="tag" style="background:${getAccountQuestionnaireCompletion(a) >= 100 ? '#22c55e' : '#ef4444'}; color:white">Questionnaire: ${getAccountQuestionnaireCompletion(a)}%</span>
  </div>
  <div style="font-size:0.8em; opacity:0.6; margin-top:10px">
  📅 Created: ${fmtDate(a.createdDate)}<br>🕒 Updated: ${fmtDate(a.modifiedDate)}
