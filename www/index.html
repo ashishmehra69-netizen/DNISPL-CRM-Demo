@@ -950,6 +950,7 @@ function recordActivity(type, subject, notes = '', ownerOverride = null) {
  
  await loadData();
  await refreshMicrosoftButton();
+ startGeoTracking(); 
  }
 
  function resetReportState() {
@@ -957,6 +958,7 @@ function recordActivity(type, subject, notes = '', ownerOverride = null) {
    incState = { data: null, loading: false, quarter: 'Q1', targetEmail: '', salaryData: null };
  }
  function logout() {
+  stopGeoTracking();
  currentUser = '';
  isSupervisor = false;
  resetReportState();
@@ -3114,6 +3116,81 @@ async function saveOpportunity(e, id) {
  function closeModal() {
  document.getElementById('modal').classList.remove('show');
  }
+ // ═══════════════════════════════════════════════════════════════
+// GEO TRACKING
+// ═══════════════════════════════════════════════════════════════
+let _geoWatcher = null;
+let _activeVisit = null;
+
+function startGeoTracking() {
+  if (!navigator.geolocation || !currentUser) return;
+  navigator.geolocation.getCurrentPosition(() => {}, () => {}); // warm up
+  _geoWatcher = navigator.geolocation.watchPosition(
+    async pos => {
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      try {
+        const resp = await fetch(`${CRM_API_BASE}/api/geo/ping`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_email: currentUser, lat, lng, accuracy })
+        });
+        const data = await resp.json();
+        const inside = data.inside_geofences || [];
+        if (inside.length && !_activeVisit) {
+          const account = inside[0];
+          const cin = await fetch(`${CRM_API_BASE}/api/geo/checkin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_email: currentUser,
+              account_id: account.account_id,
+              lat, lng, trigger_type: 'geofence'
+            })
+          });
+          const cinData = await cin.json();
+          _activeVisit = { visitId: cinData.visit_id, accountId: account.account_id };
+          document.getElementById('status').textContent = `📍 At: ${account.account_name}`;
+        }
+        if (!inside.length && _activeVisit) {
+          await fetch(`${CRM_API_BASE}/api/geo/checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_email: currentUser,
+              visit_id: _activeVisit.visitId,
+              account_id: _activeVisit.accountId
+            })
+          });
+          document.getElementById('status').textContent = '✅ Visit logged';
+          _activeVisit = null;
+        }
+      } catch(e) {
+        // offline — silent fail
+      }
+    },
+    err => console.warn('GPS error', err),
+    { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
+  );
+}
+
+function stopGeoTracking() {
+  if (_geoWatcher !== null) {
+    navigator.geolocation.clearWatch(_geoWatcher);
+    _geoWatcher = null;
+  }
+  _activeVisit = null;
+}
+
+function useMyLocation(latField, lngField) {
+  if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.querySelector(`[name="${latField}"]`).value = pos.coords.latitude.toFixed(7);
+      document.querySelector(`[name="${lngField}"]`).value = pos.coords.longitude.toFixed(7);
+    },
+    err => alert('Could not get location: ' + err.message)
+  );
+} 
  </script>
 </body>
 </html>
