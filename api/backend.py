@@ -16,6 +16,7 @@ from io import StringIO
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
+import re
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
@@ -473,6 +474,44 @@ def init_db() -> None:
                 );
                 """
             )
+            # Geo-tagging: geofence centre on each account
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_lat NUMERIC(10,7);")
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_lng NUMERIC(10,7);")
+            cur.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS geo_radius_meters INTEGER DEFAULT 150;")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS location_pings (
+                    id SERIAL PRIMARY KEY,
+                    user_email TEXT NOT NULL,
+                    lat NUMERIC(10,7) NOT NULL,
+                    lng NUMERIC(10,7) NOT NULL,
+                    accuracy_meters NUMERIC,
+                    battery_level INTEGER,
+                    pinged_at TIMESTAMPTZ DEFAULT now()
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS account_visits (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT,
+                    account_name TEXT,
+                    user_email TEXT NOT NULL,
+                    checked_in_at TIMESTAMPTZ,
+                    checked_out_at TIMESTAMPTZ,
+                    duration_minutes INTEGER,
+                    lat NUMERIC(10,7),
+                    lng NUMERIC(10,7),
+                    trigger_type TEXT DEFAULT 'geofence',
+                    activity_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                );
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_location_pings_user ON location_pings(user_email, pinged_at DESC);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_account_visits_user ON account_visits(user_email, checked_in_at DESC);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_account_visits_account ON account_visits(account_id, checked_in_at DESC);")
             # Performance indexes for concurrent access patterns.
             cur.execute("CREATE INDEX IF NOT EXISTS idx_accounts_manager_id ON accounts(account_manager_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_activities_owner ON activities(lower(owner));")
