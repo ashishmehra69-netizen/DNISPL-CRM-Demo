@@ -1,0 +1,16 @@
+{
+  "name": "dnispl-crm",
+  "version": "1.0.0",
+  "description": "DNISPL Sales CRM",
+  "scripts": {
+    "build": "echo done"
+  },
+  "dependencies": {
+    "@capacitor/android": "5.7.0",
+    "@capacitor/core": "5.7.0",
+    "@capacitor/geolocation": "5.1.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "5.7.0"
+  }
+}
