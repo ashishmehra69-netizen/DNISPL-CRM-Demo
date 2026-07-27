@@ -18,16 +18,25 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
+
       - name: Install dependencies
         run: npm install
 
-      - name: Install Capacitor CLI globally
-        run: npm install -g @capacitor/cli@5.7.0
+      - name: Verify www/index.html exists
+        run: |
+          if [ ! -f "www/index.html" ]; then
+            echo "ERROR: www/index.html not found"
+            ls -la
+            exit 1
+          fi
+          echo "www/index.html found OK"
 
       - name: Add Android platform
         run: npx cap add android
 
-      - name: Copy www assets into Android
+      - name: Copy www into Android
         run: npx cap copy android
 
       - name: Setup Java 17
@@ -36,7 +45,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Add permissions to AndroidManifest
+      - name: Add Android permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n</manifest>|' $MANIFEST
@@ -47,9 +56,9 @@ jobs:
       - name: Build debug APK
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DNISPL-CRM-Android
