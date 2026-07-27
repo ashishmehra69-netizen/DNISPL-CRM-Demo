@@ -1,0 +1,17 @@
+{
+  "appId": "com.dnispl.crm",
+  "appName": "Sales CRM",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": [
+      "www.diversifiedsolutions.in"
+    ]
+  },
+  "plugins": {
+    "Geolocation": {
+      "permissions": ["location", "coarseLocation"]
+    }
+  }
+}
