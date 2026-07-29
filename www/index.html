@@ -459,6 +459,8 @@ function normalizeAccountFromApi(a) {
    mode: a.mode || '',
    accountManager: a.account_manager_email || a.accountManager || '',
    owner: a.account_manager_email || a.owner || '',
+   geo_lat: a.geo_lat || null,
+   geo_lng: a.geo_lng || null,
    createdDate: created,
    modifiedDate: modified
  };
@@ -729,6 +731,8 @@ async function upsertAccountToApi(account) {
   company_size: account.companySize || '',
   annual_spend: account.annualSpend || '',
   mode: account.mode || ''
+  geo_lat: account.geo_lat ? parseFloat(account.geo_lat) : null,
+  geo_lng: account.geo_lng ? parseFloat(account.geo_lng) : null
  };
  const resp = await fetch(`${CRM_API_BASE}/api/accounts`, {
   method: 'POST',
@@ -2483,7 +2487,17 @@ function openAddModal() {
  <option value="Overcome Bottleneck" ${account?.mode === 'Overcome Bottleneck' ? 'selected' : ''}>Overcome Bottleneck</option>
  <option value="Status Quo" ${account?.mode === 'Status Quo' ? 'selected' : ''}>Status Quo</option>
  </select>
- 
+ <div style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.1);border-radius:8px">
+  <h4 style="margin:0 0 10px">📍 Geofence (for automatic visit tracking)</h4>
+  <input class="input" type="number" step="0.0000001" name="geo_lat" 
+    placeholder="Latitude" value="${account?.geo_lat || ''}">
+  <input class="input" type="number" step="0.0000001" name="geo_lng" 
+    placeholder="Longitude" value="${account?.geo_lng || ''}">
+  <button type="button" class="btn" onclick="useMyLocation('geo_lat','geo_lng')">
+    📍 Use My Current Location
+  </button>
+  <div style="font-size:0.8em;opacity:0.7;margin-top:6px">Stand at the client's office and tap this button</div>
+</div>
  <div style="margin-top:20px">
  <button type="button" class="btn" onclick="closeModal()">Cancel</button>
  <button type="submit" class="btn btn-success">Save</button>
