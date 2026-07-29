@@ -1045,6 +1045,8 @@ def upsert_account(data: dict, manager_id: int) -> str:
     company_size = (data.get("company_size") or data.get("companySize") or "").strip()
     annual_spend = (data.get("annual_spend") or data.get("annualSpend") or "").strip()
     mode = (data.get("mode") or "").strip()
+    geo_lat = data.get("geo_lat")
+    geo_lng = data.get("geo_lng")
     suspect_answers = {
         f"suspect_q{i}": (data.get(f"suspect_q{i}") or "").strip()
         for i in range(1, 11)
@@ -1073,6 +1075,8 @@ def upsert_account(data: dict, manager_id: int) -> str:
                         company_size=%s,
                         annual_spend=%s,
                         mode=%s,
+                        geo_lat=%s,
+                        geo_lng=%s,
                         suspect_q1=%s,
                         suspect_q2=%s,
                         suspect_q3=%s,
@@ -1095,6 +1099,8 @@ def upsert_account(data: dict, manager_id: int) -> str:
                         company_size,
                         annual_spend,
                         mode,
+                        geo_lat,
+                        geo_lng,
                         suspect_answers["suspect_q1"],
                         suspect_answers["suspect_q2"],
                         suspect_answers["suspect_q3"],
@@ -1116,12 +1122,14 @@ def upsert_account(data: dict, manager_id: int) -> str:
                 """
                 INSERT INTO accounts (
                     account_name, account_manager_id, industry, tier, location, company_size, annual_spend, mode,
+                    geo_lat, geo_lng,
                     suspect_q1, suspect_q2, suspect_q3, suspect_q4, suspect_q5,
                     suspect_q6, suspect_q7, suspect_q8, suspect_q9, suspect_q10, suspect_score,
                     created_at, updated_at
                 )
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     now(), now()
@@ -1136,6 +1144,8 @@ def upsert_account(data: dict, manager_id: int) -> str:
                     company_size,
                     annual_spend,
                     mode,
+                    geo_lat,
+                    geo_lng,
                     suspect_answers["suspect_q1"],
                     suspect_answers["suspect_q2"],
                     suspect_answers["suspect_q3"],
@@ -1153,8 +1163,7 @@ def upsert_account(data: dict, manager_id: int) -> str:
             return "created"
     finally:
         conn.close()
-
-
+        
 @app.route("/api/health", methods=["GET"])
 def health():
     conn = get_conn()
