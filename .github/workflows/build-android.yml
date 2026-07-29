@@ -38,7 +38,7 @@ jobs:
 
           # Path to your logo file committed in the repo.
           # Update this if you place the logo somewhere else.
-          LOGO_PATH = "assets/logo.png"
+          LOGO_PATH = "logo.jpeg"
 
           def make_icon(size, path, round_mask=False):
               # Open logo and convert to RGBA
