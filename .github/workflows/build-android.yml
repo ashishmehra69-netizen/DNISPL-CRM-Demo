@@ -1,29 +1,22 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 jobs:
   build-android:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Setup Node.js 18
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli
-
       - name: Install dependencies
         run: npm install
-
       - name: Verify www/index.html exists
         run: |
           if [ ! -f "www/index.html" ]; then
@@ -32,32 +25,71 @@ jobs:
             exit 1
           fi
           echo "www/index.html found OK"
-
       - name: Add Android platform
         run: npx cap add android
-
       - name: Copy www into Android
         run: npx cap copy android
+      - name: Generate app icon from DS logo
+        run: |
+          pip install pillow --break-system-packages --quiet
+          python3 - <<'EOF'
+          from PIL import Image, ImageDraw
+          import os
 
+          # Path to your logo file committed in the repo.
+          # Update this if you place the logo somewhere else.
+          LOGO_PATH = "assets/logo.png"
+
+          def make_icon(size, path, round_mask=False):
+              # Open logo and convert to RGBA
+              logo = Image.open(LOGO_PATH).convert("RGBA")
+
+              # Paste logo onto a square white canvas (keeps aspect ratio, no stretching)
+              canvas = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+              logo_ratio = min(size / logo.width, size / logo.height)
+              new_w = int(logo.width * logo_ratio)
+              new_h = int(logo.height * logo_ratio)
+              logo_resized = logo.resize((new_w, new_h), Image.LANCZOS)
+              offset = ((size - new_w) // 2, (size - new_h) // 2)
+              canvas.paste(logo_resized, offset, logo_resized)
+
+              if round_mask:
+                  mask = Image.new("L", (size, size), 0)
+                  draw = ImageDraw.Draw(mask)
+                  draw.ellipse([0, 0, size, size], fill=255)
+                  canvas.putalpha(mask)
+
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              canvas.convert("RGBA").save(path)
+
+          sizes = {
+              'mipmap-mdpi': 48,
+              'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96,
+              'mipmap-xxhdpi': 144,
+              'mipmap-xxxhdpi': 192,
+          }
+          base = 'android/app/src/main/res'
+          for folder, size in sizes.items():
+              make_icon(size, f'{base}/{folder}/ic_launcher.png', round_mask=False)
+              make_icon(size, f'{base}/{folder}/ic_launcher_round.png', round_mask=True)
+          print('Icons generated from DS logo')
+          EOF
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-
       - name: Add Android permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n</manifest>|' $MANIFEST
-
       - name: Make gradlew executable
         run: chmod +x android/gradlew
-
       - name: Build debug APK
         run: |
           cd android
           ./gradlew assembleDebug --no-daemon
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
