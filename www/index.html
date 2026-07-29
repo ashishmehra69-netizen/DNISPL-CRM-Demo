@@ -3122,9 +3122,23 @@ async function saveOpportunity(e, id) {
 let _geoWatcher = null;
 let _activeVisit = null;
 
+ async function reverseGeocode(lat, lng) {
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lng=${lng}&format=json`,
+      { headers: { 'User-Agent': 'DNISPL-CRM/1.0' } }
+    );
+    const data = await resp.json();
+    const addr = data.address || {};
+    return addr.building || addr.amenity || addr.road ||
+           addr.neighbourhood || addr.suburb ||
+           data.display_name?.split(',')[0] || 'Current location';
+  } catch(e) {
+    return 'Current location';
+  }
+}
 function startGeoTracking() {
   if (!navigator.geolocation || !currentUser) return;
-  navigator.geolocation.getCurrentPosition(() => {}, () => {}); // warm up
   _geoWatcher = navigator.geolocation.watchPosition(
     async pos => {
       const { latitude: lat, longitude: lng, accuracy } = pos.coords;
@@ -3136,6 +3150,10 @@ function startGeoTracking() {
         });
         const data = await resp.json();
         const inside = data.inside_geofences || [];
+
+        // Get real place name from coordinates
+        const placeName = await reverseGeocode(lat, lng);
+
         if (inside.length && !_activeVisit) {
           const account = inside[0];
           const cin = await fetch(`${CRM_API_BASE}/api/geo/checkin`, {
@@ -3144,14 +3162,21 @@ function startGeoTracking() {
             body: JSON.stringify({
               user_email: currentUser,
               account_id: account.account_id,
-              lat, lng, trigger_type: 'geofence'
+              lat, lng,
+              trigger_type: 'geofence'
             })
           });
           const cinData = await cin.json();
-          _activeVisit = { visitId: cinData.visit_id, accountId: account.account_id };
-          document.getElementById('status').textContent = `📍 At: ${account.account_name}`;
-        }
-        if (!inside.length && _activeVisit) {
+          _activeVisit = {
+            visitId: cinData.visit_id,
+            accountId: account.account_id,
+            accountName: account.account_name
+          };
+          const statusEl = document.getElementById('status');
+          if (statusEl) statusEl.textContent =
+            `📍 ${placeName} — ✅ ${account.account_name}`;
+
+        } else if (!inside.length && _activeVisit) {
           await fetch(`${CRM_API_BASE}/api/geo/checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3161,9 +3186,16 @@ function startGeoTracking() {
               account_id: _activeVisit.accountId
             })
           });
-          document.getElementById('status').textContent = '✅ Visit logged';
+          const statusEl = document.getElementById('status');
+          if (statusEl) statusEl.textContent =
+            `📍 ${placeName} — visit logged`;
           _activeVisit = null;
+
+        } else if (!inside.length && !_activeVisit) {
+          const statusEl = document.getElementById('status');
+          if (statusEl) statusEl.textContent = `📍 ${placeName}`;
         }
+
       } catch(e) {
         // offline — silent fail
       }
@@ -3172,8 +3204,7 @@ function startGeoTracking() {
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
   );
 }
-
-function stopGeoTracking() {
+  function stopGeoTracking() {
   if (_geoWatcher !== null) {
     navigator.geolocation.clearWatch(_geoWatcher);
     _geoWatcher = null;
