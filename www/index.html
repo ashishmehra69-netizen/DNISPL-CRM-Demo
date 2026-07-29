@@ -3125,7 +3125,7 @@ let _activeVisit = null;
  async function reverseGeocode(lat, lng) {
   try {
     const resp = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lng=${lng}&format=json`,
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
       { headers: { 'User-Agent': 'DNISPL-CRM/1.0' } }
     );
     const data = await resp.json();
