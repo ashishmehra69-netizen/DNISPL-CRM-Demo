@@ -730,7 +730,7 @@ async function upsertAccountToApi(account) {
   location: account.location || '',
   company_size: account.companySize || '',
   annual_spend: account.annualSpend || '',
-  mode: account.mode || ''
+  mode: account.mode || '',
   geo_lat: account.geo_lat ? parseFloat(account.geo_lat) : null,
   geo_lng: account.geo_lng ? parseFloat(account.geo_lng) : null
  };
