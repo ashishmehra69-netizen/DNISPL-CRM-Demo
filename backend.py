@@ -493,6 +493,17 @@ def init_db() -> None:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_po_owner ON purchase_orders(lower(owner));")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_po_requestor ON purchase_orders(lower(requestor_email));")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_po_sales_owner ON purchase_orders(lower(sales_owner));")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_locations (
+                    email TEXT PRIMARY KEY,
+                    lat NUMERIC,
+                    lng NUMERIC,
+                    accuracy_meters NUMERIC,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                );
+                """
+            )
         conn.commit()
     finally:
         conn.close()
@@ -3022,6 +3033,63 @@ def add_presales_innovation_route():
 @app.route('/api/kra/manual-metric', methods=['POST'])
 def upsert_manual_metric_route():
     return _call_standalone_aop('upsert_manual_metric')
+@app.route("/api/location/ping", methods=["POST"])
+def location_ping():
+    """Called periodically by the app while a salesperson is logged in, to update their live position."""
+    data = request.get_json(silent=True) or {}
+    email = _normalize_email(data.get("email"))
+    lat = data.get("lat")
+    lng = data.get("lng")
+    accuracy = data.get("accuracy")
+
+    if not email or lat is None or lng is None:
+        return jsonify({"error": "email, lat, lng required"}), 400
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_locations (email, lat, lng, accuracy_meters, updated_at)
+                VALUES (%s, %s, %s, %s, now())
+                ON CONFLICT (email) DO UPDATE
+                SET lat = EXCLUDED.lat,
+                    lng = EXCLUDED.lng,
+                    accuracy_meters = EXCLUDED.accuracy_meters,
+                    updated_at = now()
+                """,
+                (email, lat, lng, accuracy)
+            )
+        conn.commit()
+        return jsonify({"status": "ok"})
+    finally:
+        conn.close()
+
+
+@app.route("/api/team/locations", methods=["POST"])
+def team_locations():
+    """Supervisor-only: returns the latest known location of every team member."""
+    data = request.get_json(silent=True) or {}
+    viewer_role = (data.get("viewer_role") or "").strip().lower()
+    if not _is_supervisor(viewer_role):
+        return jsonify({"error": "supervisor only"}), 403
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT u.name, u.email, u.role,
+                       l.lat, l.lng, l.accuracy_meters, l.updated_at
+                FROM users u
+                LEFT JOIN user_locations l ON l.email = u.email
+                ORDER BY u.name
+                """
+            )
+            rows = cur.fetchall()
+        return jsonify({"team": rows})
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
