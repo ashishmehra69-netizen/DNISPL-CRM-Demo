@@ -29,6 +29,8 @@ jobs:
         run: npx cap add android
       - name: Copy www into Android
         run: npx cap copy android
+      - name: Sync Capacitor plugins into Android project
+        run: npx cap sync android
       - name: Generate app icon from DS logo
         run: |
           pip install pillow --break-system-packages --quiet
@@ -83,7 +85,7 @@ jobs:
       - name: Add Android permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n</manifest>|' $MANIFEST
+          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />\n</manifest>|' $MANIFEST
       - name: Make gradlew executable
         run: chmod +x android/gradlew
       - name: Build debug APK
