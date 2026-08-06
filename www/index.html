@@ -3297,88 +3297,135 @@ let _activeVisit = null;
 }
 let _lastPingTime = 0;
 const PING_INTERVAL_MS = 30000;
+let _bgWatcherId = null;
 
-function startGeoTracking() {
-  if (!navigator.geolocation || !currentUser) return;
-  _geoWatcher = navigator.geolocation.watchPosition(
-    async pos => {
-      const now = Date.now();
-      if (now - _lastPingTime < PING_INTERVAL_MS) return;
-      _lastPingTime = now;
-      
-      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-     try {
-        
+function getBackgroundGeolocation() {
+  return window.Capacitor?.Plugins?.BackgroundGeolocation || null;
+}
 
-        const resp = await fetch(`${CRM_API_BASE}/api/geo/ping`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_email: currentUser, lat, lng, accuracy })
-        });
-        const data = await resp.json();
-        const inside = data.inside_geofences || [];
+async function handleGeoPosition(lat, lng, accuracy) {
+  const now = Date.now();
+  if (now - _lastPingTime < PING_INTERVAL_MS) return;
+  _lastPingTime = now;
 
-        // Get real place name from coordinates
-        const placeName = await reverseGeocode(lat, lng);
+  try {
+    const resp = await fetch(`${CRM_API_BASE}/api/geo/ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_email: currentUser, lat, lng, accuracy })
+    });
+    const data = await resp.json();
+    const inside = data.inside_geofences || [];
 
-        if (inside.length && !_activeVisit) {
-          const account = inside[0];
-          const cin = await fetch(`${CRM_API_BASE}/api/geo/checkin`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_email: currentUser,
-              account_id: account.account_id,
-              lat, lng,
-              trigger_type: 'geofence'
-            })
-          });
-          const cinData = await cin.json();
-          _activeVisit = {
-            visitId: cinData.visit_id,
-            accountId: account.account_id,
-            accountName: account.account_name
-          };
-          const statusEl = document.getElementById('status');
-          if (statusEl) statusEl.textContent =
-            `📍 ${placeName} — ✅ ${account.account_name}`;
+    const placeName = await reverseGeocode(lat, lng);
 
-        } else if (!inside.length && _activeVisit) {
-          await fetch(`${CRM_API_BASE}/api/geo/checkout`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_email: currentUser,
-              visit_id: _activeVisit.visitId,
-              account_id: _activeVisit.accountId
-            })
-          });
-          const statusEl = document.getElementById('status');
-          if (statusEl) statusEl.textContent =
-            `📍 ${placeName} — visit logged`;
-          _activeVisit = null;
+    if (inside.length && !_activeVisit) {
+      const account = inside[0];
+      const cin = await fetch(`${CRM_API_BASE}/api/geo/checkin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_email: currentUser,
+          account_id: account.account_id,
+          lat, lng,
+          trigger_type: 'geofence'
+        })
+      });
+      const cinData = await cin.json();
+      _activeVisit = {
+        visitId: cinData.visit_id,
+        accountId: account.account_id,
+        accountName: account.account_name
+      };
+      const statusEl = document.getElementById('status');
+      if (statusEl) statusEl.textContent =
+        `📍 ${placeName} — ✅ ${account.account_name}`;
 
-        } else if (!inside.length && !_activeVisit) {
-          const statusEl = document.getElementById('status');
-          if (statusEl) statusEl.textContent = `📍 ${placeName}`;
+    } else if (!inside.length && _activeVisit) {
+      await fetch(`${CRM_API_BASE}/api/geo/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_email: currentUser,
+          visit_id: _activeVisit.visitId,
+          account_id: _activeVisit.accountId
+        })
+      });
+      const statusEl = document.getElementById('status');
+      if (statusEl) statusEl.textContent =
+        `📍 ${placeName} — visit logged`;
+      _activeVisit = null;
+
+    } else if (!inside.length && !_activeVisit) {
+      const statusEl = document.getElementById('status');
+      if (statusEl) statusEl.textContent = `📍 ${placeName}`;
+    }
+  } catch(e) {
+    // offline — silent fail
+  }
+}
+
+async function startGeoTracking() {
+  if (!currentUser) return;
+  const BackgroundGeolocation = getBackgroundGeolocation();
+
+  if (BackgroundGeolocation) {
+    // Native background tracking — keeps working while app is minimized
+    try {
+      _bgWatcherId = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: 'Sales CRM is tracking your location for visit check-ins.',
+          backgroundTitle: 'Sales CRM — Location Active',
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 30
+        },
+        (location, error) => {
+          if (error) {
+            console.warn('BackgroundGeolocation error', error);
+            return;
+          }
+          if (location) {
+            handleGeoPosition(location.latitude, location.longitude, location.accuracy);
+          }
         }
+      );
+    } catch (e) {
+      console.warn('BackgroundGeolocation unavailable, falling back to browser geolocation', e);
+      startBrowserGeoTracking();
+    }
+  } else {
+    // Not running inside the native app (e.g. plain website) — fall back to browser API
+    startBrowserGeoTracking();
+  }
+}
 
-      } catch(e) {
-        // offline — silent fail
-      }
+function startBrowserGeoTracking() {
+  if (!navigator.geolocation) return;
+  _geoWatcher = navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      handleGeoPosition(lat, lng, accuracy);
     },
     err => console.warn('GPS error', err),
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
   );
 }
-  function stopGeoTracking() {
+
+async function stopGeoTracking() {
+  const BackgroundGeolocation = getBackgroundGeolocation();
+  if (BackgroundGeolocation && _bgWatcherId !== null) {
+    try {
+      await BackgroundGeolocation.removeWatcher({ id: _bgWatcherId });
+    } catch (e) { /* ignore */ }
+    _bgWatcherId = null;
+  }
   if (_geoWatcher !== null) {
     navigator.geolocation.clearWatch(_geoWatcher);
     _geoWatcher = null;
   }
   _activeVisit = null;
 }
-
 function useMyLocation(latField, lngField) {
   if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
   navigator.geolocation.getCurrentPosition(
